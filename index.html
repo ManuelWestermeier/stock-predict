@@ -1,379 +1,236 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Stock Quick Predictor — No login (debugged)</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock Predictor — Reliable</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:18px;background:#f7f8fb;color:#111}
-    .card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(20,30,60,0.08);max-width:980px;margin:auto}
-    .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-    input,select,button{padding:8px 10px;border-radius:8px;border:1px solid #d6d9e6}
-    button{cursor:pointer}
-    small.gray{color:#666}
-    .warn{color:#8a2b2b}
-    .muted{color:#666;font-size:13px}
-    .ok{color:#176f2b}
-    .err{color:#8a2b2b}
-    .controls{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
-    #status{margin-top:8px}
+    :root{--bg:#f6f8fb;--card:#fff;--muted:#667085;--accent:#1f6feb}
+    *{box-sizing:border-box}
+    body{font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);margin:0;padding:28px;color:#0f172a}
+    .container{max-width:980px;margin:0 auto}
+    .card{background:var(--card);border-radius:12px;padding:20px;box-shadow:0 10px 30px rgba(15,23,42,0.06)}
+    header{display:flex;align-items:center;gap:16px}
+    h1{margin:0;font-size:20px}
+    p.lead{margin:8px 0 18px;color:var(--muted)}
+    .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+    .field{display:flex;flex-direction:column;font-size:13px}
+    input[type=text], input[type=number], select{padding:8px 10px;border-radius:8px;border:1px solid #e6eef8;min-width:140px}
+    button{background:var(--accent);color:white;border:none;padding:10px 14px;border-radius:10px;cursor:pointer}
+    .meta{display:flex;gap:12px;margin-top:14px;align-items:center}
+    .badge{background:#eef4ff;padding:6px 10px;border-radius:8px;font-size:13px;color:#0b4aa6}
+    .status{margin-top:12px;color:var(--muted);font-size:13px}
+    .row{display:flex;gap:12px;align-items:center;margin-top:14px}
+    .price{font-size:18px;font-weight:600}
+    canvas{max-width:100%;height:360px}
+    .examples{margin-left:auto;font-size:13px}
+    .examples button{background:transparent;color:var(--accent);padding:6px;border-radius:8px;border:1px solid transparent}
+    @media(max-width:720px){.controls{flex-direction:column;align-items:stretch}.examples{margin-left:0}}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h2>Stock Quick Predictor (no login) — Debugged</h2>
+  <div class="container">
+    <div class="card">
+      <header>
+        <div>
+          <h1>📈 Stock Predictor</h1>
+          <p class="lead">Type a ticker, choose how much history to use and how far to predict. Live data is used when available — otherwise a demo dataset is displayed so the app always works.</p>
+        </div>
+        <div class="examples" aria-hidden="true">
+          <!-- Quick test cases (lightweight) -->
+          <button id="exA">AAPL</button>
+          <button id="exM">MSFT</button>
+          <button id="exG">GOOGL</button>
+        </div>
+      </header>
 
-    <div class="row">
-      <input id="symbol" placeholder="Ticker (e.g. AAPL, MSFT, GOOGL)" style="flex:1" value="AAPL">
-      <select id="range">
-        <option value="1mo">1 month</option>
-        <option value="3mo">3 months</option>
-        <option value="6mo">6 months</option>
-        <option value="1y">1 year</option>
-        <option value="2y">2 years</option>
-      </select>
-      <select id="model">
-        <option value="lr">Linear regression (simple)</option>
-        <option value="ema">Exponential smoothing (alpha=0.3)</option>
-        <option value="last">Last-price trend (naive)</option>
-      </select>
-      <input id="days" type="number" min="1" max="60" value="14" style="width:88px">
-      <button id="go">Fetch & Predict</button>
-    </div>
+      <div class="controls" style="margin-top:12px">
+        <div class="field">
+          <label for="ticker">Ticker</label>
+          <input id="ticker" type="text" value="AAPL" autocomplete="off" />
+        </div>
 
-    <div class="controls">
-      <button id="testA">Test AAPL</button>
-      <button id="testM">Test MSFT</button>
-      <button id="demo">Load Demo Data</button>
-      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="useProxy"> Use CORS proxy fallback</label>
-      <button id="simulateOffline">Simulate Offline Error</button>
-      <input id="csvfile" type="file" accept=".csv" title="Upload CSV with date,close columns">
-      <button id="helpBtn">Help</button>
-    </div>
+        <div class="field">
+          <label for="days">History (days)</label>
+          <input id="days" type="number" min="20" max="720" value="120" />
+        </div>
 
-    <div class="row">
-      <div><strong>Current:</strong> <span id="current">—</span></div>
-      <div><strong>Change:</strong> <span id="change">—</span></div>
-      <div><small class="gray">Data source: Yahoo Finance unofficial JSON endpoint. Predictions are simple math models for demonstration only.</small></div>
-    </div>
+        <div class="field">
+          <label for="horizon">Predict (days)</label>
+          <input id="horizon" type="number" min="1" max="60" value="14" />
+        </div>
 
-    <div id="status" class="muted">Ready</div>
+        <div class="field">
+          <label for="model">Model</label>
+          <select id="model">
+            <option value="linear">Linear trend</option>
+            <option value="ema">Exponential smoothing</option>
+            <option value="naive">Naive average-diff</option>
+          </select>
+        </div>
 
-    <canvas id="chart" height="240"></canvas>
-    <p class="warn"><strong>Warning:</strong> This tool is educational. Predictions are simplistic and not financial advice. Use at your own risk.</p>
+        <div style="margin-left:auto">
+          <button id="go">Show Prediction</button>
+        </div>
+      </div>
 
-    <div style="margin-top:8px;font-size:13px">
-      <strong>Notes for debugging:</strong>
-      <ul>
-        <li>If you see <code>TypeError: Load failed</code> or <code>Failed to fetch</code>, the environment may block outgoing network requests. Use <em>Load Demo Data</em> or upload a CSV to continue testing.</li>
-        <li>Toggles: enable <em>Use CORS proxy fallback</em> to try a public proxy if direct fetch fails (may or may not work depending on environment).</li>
-      </ul>
+      <div class="meta">
+        <div>
+          <div class="price" id="current">—</div>
+          <div class="status" id="change">—</div>
+        </div>
+        <div class="badge" id="source">Live data</div>
+      </div>
+
+      <div style="margin-top:14px">
+        <canvas id="chart"></canvas>
+      </div>
+
+      <div class="status" id="status">Ready — click <strong>Show Prediction</strong>.</div>
     </div>
   </div>
 
-<script>
-// ----------------- Utilities -----------------
-function setStatus(txt, cls){
-  const s = document.getElementById('status');
-  s.textContent = txt;
-  s.className = cls || 'muted';
-}
+  <script>
+    // ---------- Utilities ----------
+    const el = id => document.getElementById(id);
+    let chart = null;
 
-function formatNumber(n){ return (typeof n === 'number' && !Number.isNaN(n)) ? n.toFixed(2) : '—'; }
+    function setStatus(txt){ el('status').textContent = txt; }
+    function setSource(txt){ el('source').textContent = txt; }
+    function formatNum(n){ return (typeof n==='number' && !Number.isNaN(n)) ? n.toFixed(2) : '—'; }
 
-// ----------------- Fetch with fallback -----------------
-let simulateOffline = false;
-async function fetchWithFallback(url, useProxy){
-  // If the sandbox forbids network, this may throw a TypeError: Failed to fetch / Load failed.
-  if(simulateOffline) throw new TypeError('Simulated offline (for testing)');
-
-  // Helper to attempt a fetch and parse as JSON
-  async function tryFetch(u){
-    const res = await fetch(u);
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    // Try to parse JSON; if that fails, try to parse text then JSON.parse
-    try { return await res.json(); }
-    catch(e){
-      const txt = await res.text();
-      try{ return JSON.parse(txt); }catch(err){ throw new Error('Response not JSON'); }
+    // ---------- Demo data (used if live fetch fails) ----------
+    function demoData(symbol){
+      // produce ~100 days of synthetic but plausible prices
+      const labels = []; const closes = [];
+      const now = new Date();
+      const base = (symbol && symbol.toUpperCase()==='AAPL')?150:100 + Math.random()*50;
+      for(let i=100;i>0;i--){
+        const d = new Date(now); d.setDate(d.getDate()-i);
+        labels.push(d.toISOString().slice(0,10));
+        const noise = (Math.random()-0.5)*2;
+        const trend = (100-i)*0.12;
+        closes.push(Number((base + trend + Math.sin(i/6)*3 + noise).toFixed(2)));
+      }
+      return { labels, closes, meta: {currency: 'USD'} };
     }
-  }
 
-  try{
-    return await tryFetch(url);
-  }catch(err){
-    console.warn('Direct fetch failed:', err);
-    // If caller opted into proxy fallback, try public proxies
-    if(!useProxy) throw err;
+    // ---------- Fetch Yahoo chart (robust) ----------
+    async function fetchYahoo(symbol, days){
+      const period2 = Math.floor(Date.now()/1000);
+      const period1 = period2 - Math.max(20,days) * 24 * 60 * 60;
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${period1}&period2=${period2}&interval=1d&includePrePost=false`;
+      const resp = await fetch(url, {cache: 'no-store'});
+      if(!resp.ok) throw new Error('HTTP '+resp.status);
+      const json = await resp.json();
+      return json;
+    }
 
-    const proxies = [
-      'https://api.allorigins.win/raw?url=',      // AllOrigins raw proxy
-      'https://thingproxy.freeboard.io/fetch/',  // thingproxy
-      'https://cors.bridged.cc/'                  // bridged.cc
-    ];
+    // ---------- Parse chart response safely ----------
+    function parseYahoo(json){
+      if(!json || !json.chart || !Array.isArray(json.chart.result) || !json.chart.result[0]) throw new Error('Bad response');
+      const r = json.chart.result[0];
+      const timestamps = r.timestamp || [];
+      const rawCloses = (r.indicators && r.indicators.quote && r.indicators.quote[0] && r.indicators.quote[0].close) || [];
+      const meta = r.meta || {};
+      // align and skip nulls
+      const labels = [];
+      const closes = [];
+      for(let i=0;i<timestamps.length && i<rawCloses.length;i++){
+        const c = rawCloses[i];
+        if(c === null || Number.isNaN(c)) continue;
+        labels.push(new Date(timestamps[i]*1000).toISOString().slice(0,10));
+        closes.push(c);
+      }
+      if(closes.length===0) throw new Error('No close prices');
+      return {labels, closes, meta};
+    }
 
-    for(const p of proxies){
+    // ---------- Prediction models ----------
+    function predictLinear(y, n){
+      const m = y.length; if(m===0) return [];
+      const xs = Array.from({length:m}, (_,i)=>i);
+      const meanX = xs.reduce((a,b)=>a+b,0)/m;
+      const meanY = y.reduce((a,b)=>a+b,0)/m;
+      let num=0, den=0; for(let i=0;i<m;i++){ num += (xs[i]-meanX)*(y[i]-meanY); den += (xs[i]-meanX)**2; }
+      const slope = den===0?0:num/den; const intercept = meanY - slope*meanX;
+      const out = []; for(let k=1;k<=n;k++){ out.push(intercept + slope*(m-1+k)); } return out;
+    }
+
+    function predictEma(y, n, alpha=0.25){ if(y.length===0) return []; let s=y[0]; for(let i=1;i<y.length;i++) s = alpha*y[i] + (1-alpha)*s; return Array(n).fill(s); }
+    function predictNaive(y, n){ if(y.length===0) return []; const diffs=[]; for(let i=1;i<y.length;i++) diffs.push(y[i]-y[i-1]); const avg = diffs.length? diffs.reduce((a,b)=>a+b,0)/diffs.length : 0; const out=[]; let last=y[y.length-1]; for(let i=0;i<n;i++){ last += avg; out.push(last); } return out; }
+
+    // ---------- Chart drawer ----------
+    function draw(labels, closes, preds, ticker, currency){
+      // preds: {labels:[], values:[]}
+      const fullLabels = labels.concat(preds.labels);
+      const actuals = closes.concat(Array(preds.values.length).fill(null));
+      const predSeries = Array(closes.length).fill(null).concat(preds.values);
+
+      const ctx = el('chart').getContext('2d');
+      if(chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'line', data: { labels: fullLabels, datasets: [
+          { label: `${ticker.toUpperCase()} Close (${currency||''})`, data: actuals, tension:0.2, borderWidth:2, borderColor:'#1f6feb', pointRadius:0 },
+          { label: 'Prediction', data: predSeries, tension:0.2, borderWidth:2, borderDash:[6,6], borderColor:'#ef4444', pointRadius:0 }
+        ] },
+        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}}, scales:{x:{display:true}, y:{display:true}} }
+      });
+    }
+
+    // ---------- Main runner ----------
+    async function run(){
+      const ticker = (el('ticker').value || '').trim();
+      const days = Number(el('days').value) || 120;
+      const horizon = Number(el('horizon').value) || 14;
+      const model = el('model').value || 'linear';
+
+      if(!ticker){ setStatus('Please enter a ticker.'); return; }
+
+      setStatus('Trying to load live data...'); setSource('Live data');
       try{
-        const prox = p + encodeURIComponent(url);
-        setStatus('Trying proxy: '+p.split('/')[2]+' ...', 'muted');
-        const j = await tryFetch(prox);
-        setStatus('Got data via proxy: '+p.split('/')[2], 'ok');
-        return j;
-      }catch(e){
-        console.warn('Proxy failed:', p, e);
+        const json = await fetchYahoo(ticker, days);
+        const parsed = parseYahoo(json);
+        // build prediction
+        let predsArr = model==='linear'? predictLinear(parsed.closes,horizon) : model==='ema'? predictEma(parsed.closes,horizon) : predictNaive(parsed.closes,horizon);
+        const predLabels = []; const lastDate = parsed.labels.length? new Date(parsed.labels[parsed.labels.length-1]) : new Date();
+        for(let i=1;i<=horizon;i++){ const d=new Date(lastDate); d.setDate(d.getDate()+i); predLabels.push(d.toISOString().slice(0,10)); }
+        draw(parsed.labels, parsed.closes, {labels: predLabels, values: predsArr.map(v=>Number(v.toFixed(2)))}, ticker, parsed.meta && parsed.meta.currency);
+
+        // display current price & change
+        const current = parsed.meta && parsed.meta.regularMarketPrice || parsed.closes[parsed.closes.length-1];
+        const prev = parsed.meta && parsed.meta.chartPreviousClose || parsed.closes[parsed.closes.length-2] || parsed.closes[parsed.closes.length-1];
+        el('current').textContent = `Current: ${formatNum(current)} ${parsed.meta && parsed.meta.currency?parsed.meta.currency:''}`;
+        const diff = (current - prev); const pct = prev? (diff/prev*100):0; el('change').textContent = `${diff>=0?'+':''}${formatNum(diff)} (${pct.toFixed(2)}%)`;
+
+        setStatus('Live data shown. Predictions are illustrative only.'); setSource('Live data');
+      }catch(err){
+        console.warn('Live fetch failed — falling back to demo:', err);
+        // fallback: show demo dataset
+        const d = demoData(ticker);
+        let predsArr = model==='linear'? predictLinear(d.closes,horizon) : model==='ema'? predictEma(d.closes,horizon) : predictNaive(d.closes,horizon);
+        const predLabels = []; const lastDate = d.labels.length? new Date(d.labels[d.labels.length-1]) : new Date();
+        for(let i=1;i<=horizon;i++){ const dd=new Date(lastDate); dd.setDate(dd.getDate()+i); predLabels.push(dd.toISOString().slice(0,10)); }
+        draw(d.labels, d.closes, {labels: predLabels, values: predsArr.map(v=>Number(v.toFixed(2)))}, ticker, d.meta && d.meta.currency);
+
+        // show demo price & note
+        const current = d.closes[d.closes.length-1]; const prev = d.closes[d.closes.length-2] || current; const diff=current-prev; const pct = prev? (diff/prev*100):0;
+        el('current').textContent = `Demo current: ${formatNum(current)} ${d.meta.currency||''}`;
+        el('change').textContent = `${diff>=0?'+':''}${formatNum(diff)} (${pct.toFixed(2)}%)`;
+        setSource('Demo data');
+        setStatus('Live data unavailable (network or CORS). Showing demo data so the app remains functional.');
       }
     }
-    // all proxies failed
-    throw err;
-  }
-}
 
-// ----------------- Yahoo chart fetch wrapper -----------------
-async function fetchYahooChart(symbol, range, useProxy){
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=1d&includePrePost=false`;
-  return fetchWithFallback(url, useProxy);
-}
+    // ---------- Quick examples (lightweight test cases) ----------
+    document.getElementById('exA').addEventListener('click', ()=>{ el('ticker').value='AAPL'; run(); });
+    document.getElementById('exM').addEventListener('click', ()=>{ el('ticker').value='MSFT'; run(); });
+    document.getElementById('exG').addEventListener('click', ()=>{ el('ticker').value='GOOGL'; run(); });
+    document.getElementById('go').addEventListener('click', run);
 
-// ----------------- Parsing -----------------
-function parseChart(json){
-  const chartRes = json && json.chart && json.chart.result && json.chart.result[0];
-  if(!chartRes) throw new Error('No chart result in response');
-  const timestamps = chartRes.timestamp || [];
-  const rawCloses = (chartRes.indicators && chartRes.indicators.quote && chartRes.indicators.quote[0] && chartRes.indicators.quote[0].close) || [];
-  const meta = chartRes.meta || {};
-
-  // Build aligned arrays skipping null/NaN closes (keeps labels matched to closes)
-  const labelsAll = timestamps.map(ts=>{ const d = new Date(ts*1000); return d.toISOString().slice(0,10); });
-  const labels = [];
-  const closes = [];
-  for(let i=0;i<rawCloses.length && i<labelsAll.length;i++){
-    const v = rawCloses[i];
-    if(v !== null && !Number.isNaN(v)){
-      labels.push(labelsAll[i]);
-      closes.push(v);
-    }
-  }
-  return {labels, closes, meta};
-}
-
-// ----------------- Prediction models -----------------
-function linearRegressionPredict(y, n){
-  const m = y.length;
-  if(m===0) return [];
-  const xs = [...Array(m).keys()];
-  const meanX = xs.reduce((a,b)=>a+b,0)/m;
-  const meanY = y.reduce((a,b)=>a+b,0)/m;
-  let num=0, den=0;
-  for(let i=0;i<m;i++){ num += (xs[i]-meanX)*(y[i]-meanY); den += (xs[i]-meanX)**2; }
-  const slope = den===0?0:num/den;
-  const intercept = meanY - slope*meanX;
-  const preds = [];
-  for(let k=1;k<=n;k++){
-    const x = m-1 + k;
-    preds.push(intercept + slope*x);
-  }
-  return preds;
-}
-
-function emaPredict(y,n,alpha=0.3){
-  if(y.length===0) return [];
-  // compute EMA across the series
-  let s = y[0];
-  for(let i=1;i<y.length;i++) s = alpha*y[i] + (1-alpha)*s;
-  // naive forecast: repeat last EMA for future days
-  return Array(n).fill(s);
-}
-
-function naivePredict(y,n){
-  if(y.length===0) return [];
-  const diffs = [];
-  for(let i=1;i<y.length;i++) diffs.push(y[i]-y[i-1]);
-  const avgDiff = diffs.length?diffs.reduce((a,b)=>a+b,0)/diffs.length:0;
-  const preds = [];
-  let last = y[y.length-1];
-  for(let k=0;k<n;k++){
-    last = last + avgDiff;
-    preds.push(last);
-  }
-  return preds;
-}
-
-// ----------------- Chart drawing -----------------
-let chart = null;
-function drawChart(labels, closes, predLabels, predValues){
-  const ctx = document.getElementById('chart').getContext('2d');
-  const fullLabels = labels.concat(predLabels);
-  const dataActual = closes.concat(Array(predValues.length).fill(null));
-  const dataPred = Array(closes.length).fill(null).concat(predValues);
-  if(chart) chart.destroy();
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: fullLabels,
-      datasets: [
-        { label:'Close', data: dataActual, tension:0.18, borderWidth:2, spanGaps:false },
-        { label:'Prediction', data: dataPred, tension:0.18, borderDash:[6,6], borderWidth:2 }
-      ]
-    },
-    options: {plugins:{legend:{position:'top'}}, scales:{x:{display:true}, y:{display:true}}}
-  });
-}
-
-// ----------------- Demo data / CSV -----------------
-function demoData(){
-  // 40 days of synthetic demo series (simple sine + trend)
-  const labels = [];
-  const closes = [];
-  const now = new Date();
-  for(let i=40;i>0;i--){
-    const d = new Date(now);
-    d.setDate(d.getDate()-i);
-    labels.push(d.toISOString().slice(0,10));
-    const base = 150 + (40-i)*0.3 + Math.sin(i/3)*3;
-    closes.push(Number((base + (Math.random()-0.5)*2).toFixed(2)));
-  }
-  return {labels, closes, meta:{currency:'USD'}};
-}
-
-function parseCSVText(txt){
-  // Expect CSV with header containing date and close (case-insensitive). Simple parser.
-  const lines = txt.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-  if(lines.length<2) throw new Error('CSV must have header + at least one row');
-  const header = lines[0].split(/,|;|\t/).map(h=>h.trim().toLowerCase());
-  const dateIdx = header.findIndex(h=>h.includes('date'));
-  const closeIdx = header.findIndex(h=>h.includes('close')||h.includes('price'));
-  if(dateIdx===-1 || closeIdx===-1) throw new Error('CSV header needs date and close columns');
-  const labels=[]; const closes=[];
-  for(let i=1;i<lines.length;i++){
-    const cols = lines[i].split(/,|;|\t/).map(c=>c.trim());
-    if(cols.length<=Math.max(dateIdx,closeIdx)) continue;
-    const d = cols[dateIdx];
-    const c = parseFloat(cols[closeIdx].replace(/[^0-9.-]/g,''));
-    if(!d || Number.isNaN(c)) continue;
-    labels.push(new Date(d).toISOString().slice(0,10));
-    closes.push(c);
-  }
-  if(!labels.length) throw new Error('No valid rows found in CSV');
-  return {labels, closes, meta:{currency:''}};
-}
-
-// ----------------- Main runner -----------------
-async function run(symbol, range, model, days, opts={useProxy:false, fromDemo:false, csvData:null}){
-  document.getElementById('current').textContent='Loading...';
-  document.getElementById('change').textContent='';
-  setStatus('Fetching data...', 'muted');
-
-  try{
-    let labels, closes, meta;
-    if(opts.fromDemo){
-      const d = demoData(); labels=d.labels; closes=d.closes; meta=d.meta; setStatus('Using demo data', 'ok');
-    }else if(opts.csvData){
-      const parsed = parseCSVText(opts.csvData); labels=parsed.labels; closes=parsed.closes; meta=parsed.meta; setStatus('Using CSV data', 'ok');
-    }else{
-      const json = await fetchYahooChart(symbol, range, opts.useProxy);
-      const parsed = parseChart(json);
-      labels = parsed.labels; closes = parsed.closes; meta = parsed.meta;
-      setStatus('Fetched live data', 'ok');
-    }
-
-    if(!closes || closes.length===0) throw new Error('No close prices available from data source');
-
-    // Current & change (try meta else derive from closes)
-    const current = (meta && meta.regularMarketPrice) || closes[closes.length-1];
-    const prevClose = (meta && meta.chartPreviousClose) || closes[closes.length-2] || closes[closes.length-1];
-    document.getElementById('current').textContent = (current!==undefined?formatNumber(current):'—') + ` (${meta && meta.currency ? meta.currency : ''})`;
-    if(current!==undefined && prevClose!==undefined){
-      const ch = current - prevClose;
-      const pct = prevClose? (ch/prevClose)*100 : 0;
-      document.getElementById('change').textContent = (ch>=0?'+':'')+formatNumber(ch)+` (${pct.toFixed(2)}%)`;
-    }
-
-    // prediction
-    let preds;
-    if(model==='lr') preds = linearRegressionPredict(closes, days);
-    else if(model==='ema') preds = emaPredict(closes, days, 0.3);
-    else preds = naivePredict(closes, days);
-
-    const lastDate = labels.length?new Date(labels[labels.length-1]):new Date();
-    const predLabels = [];
-    for(let i=1;i<=days;i++){
-      const d = new Date(lastDate);
-      d.setDate(d.getDate()+i);
-      predLabels.push(d.toISOString().slice(0,10));
-    }
-
-    drawChart(labels, closes, predLabels, preds.map(v=>Number(v.toFixed(2))));
-  }catch(err){
-    console.error(err);
-    document.getElementById('current').textContent = 'Error';
-    document.getElementById('change').textContent = err.message || String(err);
-    setStatus('Error: '+(err.message||err), 'err');
-  }
-}
-
-// ----------------- UI wiring -----------------
-document.getElementById('go').addEventListener('click', ()=>{
-  const sym = document.getElementById('symbol').value.trim();
-  const range = document.getElementById('range').value;
-  const model = document.getElementById('model').value;
-  const days = parseInt(document.getElementById('days').value)||14;
-  const useProxy = document.getElementById('useProxy').checked;
-  run(sym, range, model, days, {useProxy});
-});
-
-document.getElementById('testA').addEventListener('click', ()=>{
-  document.getElementById('symbol').value = 'AAPL';
-  document.getElementById('range').value = '1mo';
-  document.getElementById('model').value = 'lr';
-  document.getElementById('days').value = '14';
-  document.getElementById('useProxy').checked = true;
-  document.getElementById('go').click();
-});
-
-document.getElementById('testM').addEventListener('click', ()=>{
-  document.getElementById('symbol').value = 'MSFT';
-  document.getElementById('range').value = '3mo';
-  document.getElementById('model').value = 'ema';
-  document.getElementById('days').value = '21';
-  document.getElementById('useProxy').checked = true;
-  document.getElementById('go').click();
-});
-
-document.getElementById('demo').addEventListener('click', ()=>{
-  const model = document.getElementById('model').value;
-  const days = parseInt(document.getElementById('days').value)||14;
-  run('DEMO','1mo', model, days, {fromDemo:true});
-});
-
-document.getElementById('simulateOffline').addEventListener('click', ()=>{
-  simulateOffline = true;
-  setTimeout(()=>simulateOffline=false, 5000);
-  setStatus('Simulating offline network for 5s', 'muted');
-});
-
-// CSV upload
-document.getElementById('csvfile').addEventListener('change', (ev)=>{
-  const f = ev.target.files && ev.target.files[0];
-  if(!f) return;
-  const reader = new FileReader();
-  reader.onload = function(e){
-    try{
-      run('', '', document.getElementById('model').value, parseInt(document.getElementById('days').value)||14, {csvData: e.target.result});
-    }catch(err){
-      setStatus('CSV parse error: '+err.message, 'err');
-    }
-  };
-  reader.readAsText(f);
-});
-
-// Help
-document.getElementById('helpBtn').addEventListener('click', ()=>{
-  alert('Troubleshooting tips:\n\n- If you get a network error, enable "Use CORS proxy fallback" to try public proxies.\n- If that still fails the environment may block outgoing network requests; use Demo Data or upload a CSV with columns date,close.\n- "Simulate Offline" will artificially block network for 5s to help reproduce the error.');
-});
-
-// Auto-run demo on load to show everything works without network
-setTimeout(()=>{ document.getElementById('demo').click(); }, 250);
-</script>
+    // Don't auto-run — user triggers. But keep a small default display by pre-filling ticker.
+    setStatus('Ready. Enter a ticker and click "Show Prediction".');
+  </script>
 </body>
 </html>
