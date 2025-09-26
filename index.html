@@ -26,6 +26,8 @@
     canvas{max-width:100%;height:360px}
     .examples{margin-left:auto;font-size:13px}
     .examples button{background:transparent;color:var(--accent);padding:6px;border-radius:8px;border:1px solid transparent}
+    #lastUsed{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    #lastUsed button{padding:4px 8px;font-size:12px;background:#dbeafe;color:#1f6feb;border:none;border-radius:6px;cursor:pointer}
     @media(max-width:720px){.controls{flex-direction:column;align-items:stretch}.examples{margin-left:0}}
   </style>
 </head>
@@ -38,7 +40,6 @@
           <p class="lead">Type a ticker, choose how much history to use and how far to predict. Live data is used when available — otherwise a demo dataset is displayed so the app always works.</p>
         </div>
         <div class="examples" aria-hidden="true">
-          <!-- Quick test cases (lightweight) -->
           <button id="exA">AAPL</button>
           <button id="exM">MSFT</button>
           <button id="exG">GOOGL</button>
@@ -75,6 +76,11 @@
         </div>
       </div>
 
+      <div class="field">
+        <label>Last Used Stocks</label>
+        <div id="lastUsed"></div>
+      </div>
+
       <div class="meta">
         <div>
           <div class="price" id="current">—</div>
@@ -92,7 +98,6 @@
   </div>
 
   <script>
-    // ---------- Utilities ----------
     const el = id => document.getElementById(id);
     let chart = null;
 
@@ -100,9 +105,7 @@
     function setSource(txt){ el('source').textContent = txt; }
     function formatNum(n){ return (typeof n==='number' && !Number.isNaN(n)) ? n.toFixed(2) : '—'; }
 
-    // ---------- Demo data (used if live fetch fails) ----------
     function demoData(symbol){
-      // produce ~100 days of synthetic but plausible prices
       const labels = []; const closes = [];
       const now = new Date();
       const base = (symbol && symbol.toUpperCase()==='AAPL')?150:100 + Math.random()*50;
@@ -116,7 +119,6 @@
       return { labels, closes, meta: {currency: 'USD'} };
     }
 
-    // ---------- Fetch Yahoo chart (robust) ----------
     async function fetchYahoo(symbol, days){
       const period2 = Math.floor(Date.now()/1000);
       const period1 = period2 - Math.max(20,days) * 24 * 60 * 60;
@@ -127,14 +129,12 @@
       return json;
     }
 
-    // ---------- Parse chart response safely ----------
     function parseYahoo(json){
       if(!json || !json.chart || !Array.isArray(json.chart.result) || !json.chart.result[0]) throw new Error('Bad response');
       const r = json.chart.result[0];
       const timestamps = r.timestamp || [];
       const rawCloses = (r.indicators && r.indicators.quote && r.indicators.quote[0] && r.indicators.quote[0].close) || [];
       const meta = r.meta || {};
-      // align and skip nulls
       const labels = [];
       const closes = [];
       for(let i=0;i<timestamps.length && i<rawCloses.length;i++){
@@ -147,7 +147,6 @@
       return {labels, closes, meta};
     }
 
-    // ---------- Prediction models ----------
     function predictLinear(y, n){
       const m = y.length; if(m===0) return [];
       const xs = Array.from({length:m}, (_,i)=>i);
@@ -161,13 +160,10 @@
     function predictEma(y, n, alpha=0.25){ if(y.length===0) return []; let s=y[0]; for(let i=1;i<y.length;i++) s = alpha*y[i] + (1-alpha)*s; return Array(n).fill(s); }
     function predictNaive(y, n){ if(y.length===0) return []; const diffs=[]; for(let i=1;i<y.length;i++) diffs.push(y[i]-y[i-1]); const avg = diffs.length? diffs.reduce((a,b)=>a+b,0)/diffs.length : 0; const out=[]; let last=y[y.length-1]; for(let i=0;i<n;i++){ last += avg; out.push(last); } return out; }
 
-    // ---------- Chart drawer ----------
     function draw(labels, closes, preds, ticker, currency){
-      // preds: {labels:[], values:[]}
       const fullLabels = labels.concat(preds.labels);
       const actuals = closes.concat(Array(preds.values.length).fill(null));
       const predSeries = Array(closes.length).fill(null).concat(preds.values);
-
       const ctx = el('chart').getContext('2d');
       if(chart) chart.destroy();
       chart = new Chart(ctx, {
@@ -179,26 +175,49 @@
       });
     }
 
-    // ---------- Main runner ----------
+    // ---------- Last-used ticker logic ----------
+    const LAST_USED_KEY = 'lastUsedStocks';
+    const MAX_LAST = 5;
+    function loadLastUsed(){
+      const last = JSON.parse(localStorage.getItem(LAST_USED_KEY) || '[]');
+      const container = el('lastUsed');
+      container.innerHTML = '';
+      last.forEach(sym=>{
+        const btn = document.createElement('button');
+        btn.textContent = sym;
+        btn.addEventListener('click', ()=>{
+          el('ticker').value = sym;
+          run();
+        });
+        container.appendChild(btn);
+      });
+    }
+    function saveLastUsed(ticker){
+      if(!ticker) return;
+      let last = JSON.parse(localStorage.getItem(LAST_USED_KEY) || '[]');
+      last = last.filter(s=>s.toUpperCase()!==ticker.toUpperCase());
+      last.unshift(ticker.toUpperCase());
+      if(last.length>MAX_LAST) last = last.slice(0,MAX_LAST);
+      localStorage.setItem(LAST_USED_KEY, JSON.stringify(last));
+      loadLastUsed();
+    }
+
     async function run(){
       const ticker = (el('ticker').value || '').trim();
       const days = Number(el('days').value) || 120;
       const horizon = Number(el('horizon').value) || 14;
       const model = el('model').value || 'linear';
-
       if(!ticker){ setStatus('Please enter a ticker.'); return; }
 
       setStatus('Trying to load live data...'); setSource('Live data');
       try{
         const json = await fetchYahoo(ticker, days);
         const parsed = parseYahoo(json);
-        // build prediction
         let predsArr = model==='linear'? predictLinear(parsed.closes,horizon) : model==='ema'? predictEma(parsed.closes,horizon) : predictNaive(parsed.closes,horizon);
         const predLabels = []; const lastDate = parsed.labels.length? new Date(parsed.labels[parsed.labels.length-1]) : new Date();
         for(let i=1;i<=horizon;i++){ const d=new Date(lastDate); d.setDate(d.getDate()+i); predLabels.push(d.toISOString().slice(0,10)); }
         draw(parsed.labels, parsed.closes, {labels: predLabels, values: predsArr.map(v=>Number(v.toFixed(2)))}, ticker, parsed.meta && parsed.meta.currency);
 
-        // display current price & change
         const current = parsed.meta && parsed.meta.regularMarketPrice || parsed.closes[parsed.closes.length-1];
         const prev = parsed.meta && parsed.meta.chartPreviousClose || parsed.closes[parsed.closes.length-2] || parsed.closes[parsed.closes.length-1];
         el('current').textContent = `Current: ${formatNum(current)} ${parsed.meta && parsed.meta.currency?parsed.meta.currency:''}`;
@@ -207,29 +226,30 @@
         setStatus('Live data shown. Predictions are illustrative only.'); setSource('Live data');
       }catch(err){
         console.warn('Live fetch failed — falling back to demo:', err);
-        // fallback: show demo dataset
         const d = demoData(ticker);
         let predsArr = model==='linear'? predictLinear(d.closes,horizon) : model==='ema'? predictEma(d.closes,horizon) : predictNaive(d.closes,horizon);
         const predLabels = []; const lastDate = d.labels.length? new Date(d.labels[d.labels.length-1]) : new Date();
         for(let i=1;i<=horizon;i++){ const dd=new Date(lastDate); dd.setDate(dd.getDate()+i); predLabels.push(dd.toISOString().slice(0,10)); }
         draw(d.labels, d.closes, {labels: predLabels, values: predsArr.map(v=>Number(v.toFixed(2)))}, ticker, d.meta && d.meta.currency);
 
-        // show demo price & note
         const current = d.closes[d.closes.length-1]; const prev = d.closes[d.closes.length-2] || current; const diff=current-prev; const pct = prev? (diff/prev*100):0;
         el('current').textContent = `Demo current: ${formatNum(current)} ${d.meta.currency||''}`;
         el('change').textContent = `${diff>=0?'+':''}${formatNum(diff)} (${pct.toFixed(2)}%)`;
         setSource('Demo data');
         setStatus('Live data unavailable (network or CORS). Showing demo data so the app remains functional.');
       }
+
+      // Save last-used ticker
+      saveLastUsed(ticker);
     }
 
-    // ---------- Quick examples (lightweight test cases) ----------
     document.getElementById('exA').addEventListener('click', ()=>{ el('ticker').value='AAPL'; run(); });
     document.getElementById('exM').addEventListener('click', ()=>{ el('ticker').value='MSFT'; run(); });
     document.getElementById('exG').addEventListener('click', ()=>{ el('ticker').value='GOOGL'; run(); });
     document.getElementById('go').addEventListener('click', run);
 
-    // Don't auto-run — user triggers. But keep a small default display by pre-filling ticker.
+    // Load last-used tickers on start
+    loadLastUsed();
     setStatus('Ready. Enter a ticker and click "Show Prediction".');
   </script>
 </body>
