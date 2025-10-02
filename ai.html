@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Planspiel-Börse — Wrapper</title>
+<style>
+  :root{font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial; --bg:#fafafa; --card:#fff; --muted:#666;}
+  body{margin:0;background:var(--bg);color:#111;padding:18px;}
+  .container{max-width:1100px;margin:0 auto;}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  header h1{font-size:18px;margin:0}
+  .card{background:var(--card);border-radius:10px;padding:14px;margin-bottom:14px;box-shadow:0 4px 12px rgba(0,0,0,0.04)}
+  label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted)}
+  input,select,button,textarea{font:inherit;padding:8px;border-radius:6px;border:1px solid #ddd;width:100%}
+  .row{display:flex;gap:12px}
+  .col{flex:1}
+  .small{max-width:220px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px;text-align:left;border-bottom:1px solid #eee;font-size:13px}
+  tr:hover{background:#f5f7fb}
+  .actions{display:flex;gap:8px}
+  .muted{color:var(--muted);font-size:13px}
+  .success{color:green}
+  .danger{color:#c00}
+  .right{text-align:right}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Planspiel-Börse — Quick Wrapper</h1>
+    <div class="muted">Login → view stocks → buy</div>
+  </header>
+
+  <section id="authCard" class="card">
+    <strong>Login</strong>
+    <div style="margin-top:10px">
+      <label>Username</label>
+      <input id="username" value="Manuel.Westermeier@gmx.de" />
+      <label style="margin-top:8px">Password</label>
+      <input id="password" type="password" value="MaWe2009!" />
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button id="loginBtn">Login (authenticate)</button>
+        <button id="fillTokenBtn" type="button">Prefill token (demo)</button>
+        <button id="logoutBtn" type="button">Logout</button>
+      </div>
+      <div style="margin-top:8px">
+        <label>Or paste an existing access token</label>
+        <input id="manualToken" placeholder="paste access token here" />
+      </div>
+      <div id="authStatus" class="muted" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <section id="dashboard" class="card" style="display:none">
+    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between">
+      <div>
+        <strong>Dashboard</strong>
+        <div class="muted" id="userInfo"></div>
+      </div>
+      <div class="row" style="align-items:center">
+        <div style="min-width:180px">
+          <label>Market tab</label>
+          <select id="marketSelect">
+            <option>DAX</option>
+            <option>US</option>
+            <option>EUROSTOXX</option>
+            <option>TECH</option>
+          </select>
+        </div>
+        <div style="min-width:220px">
+          <label>Portfolio</label>
+          <select id="portfolioSelect"></select>
+        </div>
+        <div style="min-width:200px">
+          <label>Search stocks</label>
+          <input id="stockSearch" placeholder="name or isin" />
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:12px">
+      <div style="flex:2">
+        <div class="muted" style="margin-bottom:6px">Instruments</div>
+        <div class="card" style="padding:8px;max-height:520px;overflow:auto">
+          <table id="instrumentsTable">
+            <thead><tr><th>ISIN</th><th>Name</th><th class="right">Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="flex:1">
+        <div class="muted">Details / Chart</div>
+        <div class="card" id="instrumentDetails">
+          <div id="detailName" style="font-weight:600"></div>
+          <div id="detailIsin" class="muted" style="margin-bottom:8px"></div>
+          <img id="chartImg" src="" alt="" style="width:100%;border-radius:6px;display:none" />
+          <div id="detailJson" style="font-size:13px;white-space:pre-wrap;max-height:260px;overflow:auto;margin-top:8px" class="muted"></div>
+
+          <div style="margin-top:10px">
+            <label>Quantity</label>
+            <input id="buyQuantity" value="100" />
+            <label style="margin-top:8px">Exchange Id (default 1)</label>
+            <input id="buyExchange" value="1" />
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button id="buyBtn">Place BUY order</button>
+            </div>
+            <div id="orderStatus" style="margin-top:8px"></div>
+          </div>
+        </div>
+
+        <div class="muted" style="margin-top:10px">Portfolio snapshot</div>
+        <div class="card" id="portfolioCard" style="padding:8px">
+          <div id="portfolioSummary" class="muted">No portfolio selected</div>
+          <div style="margin-top:8px">
+            <button id="refreshPortfolioBtn">Refresh portfolio</button>
+          </div>
+          <div style="margin-top:8px;max-height:220px;overflow:auto">
+            <table id="portfolioTable"><thead><tr><th>Name</th><th>Qty</th><th class="right">Value</th></tr></thead><tbody></tbody></table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="muted">Raw API log (last responses)</div>
+    <div class="card" style="max-height:160px;overflow:auto"><pre id="apiLog" style="margin:0;white-space:pre-wrap"></pre></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const BASE = 'https://trading.planspiel-boerse.de/stockcontest/services/api';
+  const authCard = document.getElementById('authCard');
+  const dashboard = document.getElementById('dashboard');
+  const loginBtn = document.getElementById('loginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const fillTokenBtn = document.getElementById('fillTokenBtn');
+  const authStatus = document.getElementById('authStatus');
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  const manualTokenInput = document.getElementById('manualToken');
+  const userInfo = document.getElementById('userInfo');
+  const portfolioSelect = document.getElementById('portfolioSelect');
+  const marketSelect = document.getElementById('marketSelect');
+  const instrumentsTableBody = document.querySelector('#instrumentsTable tbody');
+  const instrumentDetails = document.getElementById('instrumentDetails');
+  const detailName = document.getElementById('detailName');
+  const detailIsin = document.getElementById('detailIsin');
+  const detailJson = document.getElementById('detailJson');
+  const chartImg = document.getElementById('chartImg');
+  const stockSearch = document.getElementById('stockSearch');
+  const buyBtn = document.getElementById('buyBtn');
+  const buyQuantity = document.getElementById('buyQuantity');
+  const buyExchange = document.getElementById('buyExchange');
+  const orderStatus = document.getElementById('orderStatus');
+  const apiLog = document.getElementById('apiLog');
+  const refreshPortfolioBtn = document.getElementById('refreshPortfolioBtn');
+  const portfolioSummary = document.getElementById('portfolioSummary');
+  const portfolioTableBody = document.querySelector('#portfolioTable tbody');
+
+  // in-memory
+  let token = null; // { accessToken, refreshToken }
+  let user = null;
+  let instrumentsCache = [];
+  let selectedInstrument = null;
+  let selectedPortfolioId = null;
+
+  function logApi(msg) {
+    const ts = new Date().toISOString();
+    apiLog.textContent = `${ts} — ${msg}\n\n` + apiLog.textContent;
+  }
+
+  function apiFetch(path, opts = {}, useCookieCredentials = true) {
+    // path can be full URL or relative to BASE
+    const url = path.startsWith('http') ? path : (BASE + path);
+    const headers = Object.assign({}, opts.headers || {});
+    if (!headers['accept']) headers['accept'] = 'application/json, text/plain, */*';
+    if (!headers['content-type'] && opts.body) headers['content-type'] = 'application/json';
+    if (token && token.accessToken) {
+      headers['authorization'] = 'Bearer ' + token.accessToken;
+    }
+    // x-angular-connect-string shown in sample; not required but include to be closer to original requests
+    headers['x-angular-connect-string'] = headers['x-angular-connect-string'] || '3abab342352e088ab2edde2c495acabd';
+
+    const fetchOpts = {
+      method: opts.method || (opts.body ? 'POST' : 'GET'),
+      headers,
+      mode: 'cors',
+      credentials: useCookieCredentials ? 'include' : 'omit'
+    };
+    if (opts.body) fetchOpts.body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);
+
+    logApi(`FETCH ${fetchOpts.method} ${url}`);
+    return fetch(url, fetchOpts)
+      .then(async r => {
+        let text = await r.text();
+        let data;
+        try { data = JSON.parse(text || 'null'); } catch(e) { data = text; }
+        logApi(`[${r.status}] ${url} -> ${typeof data === 'object' ? JSON.stringify(data).slice(0,200) : String(data).slice(0,300)}`);
+        if (!r.ok) {
+          const err = new Error('HTTP ' + r.status);
+          err.status = r.status;
+          err.data = data;
+          throw err;
+        }
+        return data;
+      });
+  }
+
+  // Authenticate
+  loginBtn.addEventListener('click', async () => {
+    const uname = usernameInput.value.trim();
+    const pwd = passwordInput.value;
+    authStatus.textContent = 'Logging in ...';
+    try {
+      const resp = await apiFetch('/v-ms3/authenticate', {
+        method: 'POST',
+        body: { userName: uname, password: pwd }
+      }, false); // sample uses credentials: omit for auth
+      if (resp && resp.success && resp.result && resp.result.token) {
+        token = resp.result.token;
+        user = resp.result.user;
+        authStatus.innerHTML = '<span class="success">Login successful</span>';
+        manualTokenInput.value = token.accessToken;
+        showDashboard();
+      } else {
+        authStatus.innerHTML = '<span class="danger">Login failed (no token)</span>';
+      }
+    } catch (err) {
+      console.error(err);
+      authStatus.innerHTML = '<span class="danger">Login error: ' + (err.data ? JSON.stringify(err.data) : err.message) + '</span>';
+    }
+  });
+
+  fillTokenBtn.addEventListener('click', () => {
+    // if you want to paste your long JWT quickly — prefill field with the token you provided earlier (demo)
+    manualTokenInput.value = '';
+    // don't paste any token automatically for safety; let user paste or click Login
+    alert('Prefill demo disabled for safety. Use Login or paste token.');
+  });
+
+  logoutBtn.addEventListener('click', () => {
+    token = null; user = null;
+    dashboard.style.display = 'none';
+    authCard.style.display = '';
+    authStatus.textContent = 'Logged out';
+  });
+
+  // If user pastes a token manually:
+  manualTokenInput.addEventListener('change', () => {
+    const val = manualTokenInput.value.trim();
+    if (val) {
+      token = { accessToken: val };
+      user = { firstName: 'TokenUser' };
+      authStatus.innerHTML = '<span class="success">Manual token loaded</span>';
+      showDashboard();
+    }
+  });
+
+  function showDashboard() {
+    authCard.style.display = 'none';
+    dashboard.style.display = '';
+    userInfo.textContent = user && user.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Logged in';
+    // populate portfolios
+    const portfolios = (user && user.userPortfolios) ? user.userPortfolios : [];
+    portfolioSelect.innerHTML = '';
+    portfolios.forEach(p => {
+      const o = document.createElement('option'); o.value = p.id; o.textContent = `${p.depotName} (${p.id})`;
+      portfolioSelect.appendChild(o);
+    });
+    if (portfolios.length) {
+      selectedPortfolioId = portfolios[0].id;
+      portfolioSelect.value = selectedPortfolioId;
+      fetchPortfolio(selectedPortfolioId);
+    }
+    // initial fetch instruments for default market
+    fetchInstrumentsForTab(marketSelect.value);
+  }
+
+  portfolioSelect.addEventListener('change', () => {
+    selectedPortfolioId = Number(portfolioSelect.value);
+    fetchPortfolio(selectedPortfolioId);
+  });
+
+  refreshPortfolioBtn.addEventListener('click', () => {
+    if (selectedPortfolioId) fetchPortfolio(selectedPortfolioId);
+  });
+
+  async function fetchPortfolio(portfolioId) {
+    try {
+      portfolioSummary.textContent = 'Loading portfolio ...';
+      const payload = await apiFetch(`/v-ms1/portfolio/getPortfolio?portfolioId=${encodeURIComponent(portfolioId)}`, { method: 'GET' });
+      portfolioSummary.textContent = `Portfolio ${payload?.id || portfolioId} — status: ${payload?.status || 'n/a'}`;
+      // If the portfolio returns holdings array (name differs by backend), show best-effort table:
+      const holdings = payload?.portfolioItems || payload?.positions || payload?.holdings || payload?.portfolio || [];
+      portfolioTableBody.innerHTML = '';
+      if (Array.isArray(holdings) && holdings.length) {
+        for (const h of holdings) {
+          const tr = document.createElement('tr');
+          const name = h.name || h.instrumentName || h.isin || (h.security && h.security.name) || '—';
+          const qty = (h.quantity != null) ? h.quantity : (h.amount != null ? h.amount : '—');
+          const val = h.marketValue != null ? (h.marketValue + ' ' + (payload?.currency || 'EUR')) : (h.value || '—');
+          tr.innerHTML = `<td>${name}</td><td>${qty}</td><td class="right">${val}</td>`;
+          portfolioTableBody.appendChild(tr);
+        }
+      } else {
+        portfolioTableBody.innerHTML = '<tr><td colspan="3" class="muted">No holdings returned</td></tr>';
+      }
+    } catch (err) {
+      portfolioSummary.innerHTML = `<span class="danger">Error loading portfolio: ${err.message}</span>`;
+      console.error(err);
+    }
+  }
+
+  // Instruments list for tab
+  marketSelect.addEventListener('change', () => fetchInstrumentsForTab(marketSelect.value));
+  stockSearch.addEventListener('input', filterInstruments);
+
+  async function fetchInstrumentsForTab(tabName = 'DAX') {
+    try {
+      instrumentsTableBody.innerHTML = '<tr><td colspan="3" class="muted">Loading...</td></tr>';
+      const data = await apiFetch(`/v-ms1/instrument/getInstrumentsTab?tabName=${encodeURIComponent(tabName)}`, { method: 'GET' });
+      // store and render
+      // shape depends on backend — try common fields
+      instrumentsCache = Array.isArray(data) ? data : (data?.instruments || data?.result || []);
+      if (!Array.isArray(instrumentsCache)) instrumentsCache = [];
+      renderInstruments(instrumentsCache);
+    } catch (err) {
+      instrumentsTableBody.innerHTML = `<tr><td colspan="3" class="danger">Error loading instruments: ${err.message}</td></tr>`;
+      console.error(err);
+    }
+  }
+
+  function renderInstruments(list) {
+    instrumentsTableBody.innerHTML = '';
+    if (!list.length) {
+      instrumentsTableBody.innerHTML = '<tr><td colspan="3" class="muted">No instruments returned</td></tr>';
+      return;
+    }
+    list.forEach(inst => {
+      const isin = inst.isin || inst.key?.isin || inst.key_isin || inst.idIsin || inst.identifier || '';
+      const name = inst.name || inst.instrumentName || inst.displayName || inst.key?.name || inst.title || '';
+      const tr = document.createElement('tr');
+      const btn = document.createElement('button');
+      btn.textContent = 'Details';
+      btn.addEventListener('click', () => selectInstrument(inst));
+      tr.innerHTML = `<td>${isin}</td><td>${name}</td><td class="right"></td>`;
+      tr.querySelector('td:last-child').appendChild(btn);
+      instrumentsTableBody.appendChild(tr);
+    });
+    filterInstruments();
+  }
+
+  function filterInstruments() {
+    const q = stockSearch.value.trim().toLowerCase();
+    const rows = instrumentsTableBody.querySelectorAll('tr');
+    rows.forEach(row => {
+      const t = row.textContent.toLowerCase();
+      row.style.display = q ? (t.includes(q) ? '' : 'none') : '';
+    });
+  }
+
+  async function selectInstrument(inst) {
+    selectedInstrument = inst;
+    const isin = inst.isin || inst.key?.isin || inst.idIsin || inst.identifier || '';
+    detailName.textContent = inst.name || inst.instrumentName || inst.displayName || 'Instrument';
+    detailIsin.textContent = isin ? `ISIN: ${isin}` : '';
+    detailJson.textContent = JSON.stringify(inst, null, 2);
+    chartImg.style.display = 'none';
+    chartImg.src = '';
+    // try load instrument with quotes
+    try {
+      const q = isin ? await apiFetch(`/v-ms1/instrument/getInstrumentWithQuotes?isin=${encodeURIComponent(isin)}` , { method: 'GET' }) : null;
+      if (q) {
+        detailJson.textContent = JSON.stringify(q, null, 2);
+      }
+    } catch (err) {
+      // ignore failure to fetch quotes
+      console.warn('quote fetch failed', err);
+    }
+    // show chart image if we have an ISIN
+    if (isin) {
+      const url = `https://charts2.byteworx.de/bwcharts/images/MMC/plain/Web_Plain.png?key.isin=${encodeURIComponent(isin)}&key.codeMarket=_STU&timeSpan=1Y&chart.width=598&chart.height=330`;
+      chartImg.src = url;
+      chartImg.style.display = '';
+    }
+  }
+
+  // Place buy order
+  buyBtn.addEventListener('click', async () => {
+    if (!selectedInstrument) {
+      orderStatus.innerHTML = '<span class="danger">Select an instrument first</span>'; return;
+    }
+    if (!selectedPortfolioId) {
+      orderStatus.innerHTML = '<span class="danger">Select a portfolio first</span>'; return;
+    }
+    const isin = selectedInstrument.isin || selectedInstrument.key?.isin || selectedInstrument.idIsin || '';
+    if (!isin) {
+      orderStatus.innerHTML = '<span class="danger">Instrument has no ISIN</span>'; return;
+    }
+    const qty = String(buyQuantity.value || '1');
+    const exchangeId = String(buyExchange.value || '1');
+
+    // validUntil: set to 2 hours from now (ISO)
+    const validUntil = new Date(Date.now() + (2 * 60 * 60 * 1000)).toISOString();
+
+    const body = {
+      isin,
+      orderSubType: "BEST",
+      orderType: "BUY",
+      portfolioId: Number(selectedPortfolioId),
+      quantity: qty,
+      stopOrLimit: null,
+      validUntil,
+      idExchange: exchangeId,
+      noteText: null
+    };
+
+    orderStatus.textContent = 'Placing order ...';
+    try {
+      const resp = await apiFetch('/v-ms3/order/placeOrder', { method: 'POST', body }, true);
+      orderStatus.innerHTML = '<span class="success">Order placed — response: ' + (resp && resp.id ? ('id=' + resp.id) : JSON.stringify(resp)) + '</span>';
+      // refresh portfolio and transactions
+      fetchPortfolio(selectedPortfolioId);
+      try { await apiFetch(`/v-ms1/performance/getTransactionGroup?portfolioId=${encodeURIComponent(selectedPortfolioId)}&withTransactions=false`, { method: 'GET' }); } catch(e){}
+    } catch (err) {
+      console.error(err);
+      orderStatus.innerHTML = '<span class="danger">Order failed: ' + (err.data ? JSON.stringify(err.data) : err.message) + '</span>';
+    }
+  });
+
+  // initial small helper: if user loaded with manual token in URL hash
+  (function checkHashToken() {
+    const h = location.hash.replace('#','');
+    if (h && h.length > 30) {
+      manualTokenInput.value = h;
+      manualTokenInput.dispatchEvent(new Event('change'));
+    }
+  })();
+
+  // Helpful tip in console
+  console.log('Wrapper loaded. Use login form or paste token.');
+})();
+</script>
+</body>
+</html>
